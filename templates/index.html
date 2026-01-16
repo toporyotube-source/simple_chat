@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <title>Мессенджер</title>
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<div class="app">
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-circle">M</div>
+            <div class="sidebar-title">Мессенджер</div>
+        </div>
+
+        <div class="sidebar-user">
+            <label>Имя</label>
+            <input id="username" placeholder="Введите имя" />
+        </div>
+
+        <div class="rooms-title">Комнаты</div>
+        <div class="rooms-list" id="roomsList">
+            {% for room in rooms %}
+            <button class="room-btn{% if loop.first %} active{% endif %}" data-room="{{ room }}">
+                <span class="room-name">
+                    {% if room == 'general' %}Общий{% elif room == 'games' %}Игры{% elif room == 'random' %}Разное{% else %}{{ room }}{% endif %}
+                </span>
+            </button>
+            {% endfor %}
+        </div>
+
+        <div class="sidebar-hint">
+            Открой вкладку ещё раз — будет как второй пользователь.
+        </div>
+    </div>
+
+    <div class="chat">
+        <div class="chat-header">
+            <div class="chat-header-left">
+                <div class="chat-title" id="chatTitle">Общий чат</div>
+                <div class="chat-subtitle" id="chatSubtitle">Комната: general</div>
+            </div>
+            <div class="chat-status">
+                <span class="status-indicator"></span>
+                <span id="onlineCount">0</span> онлайн
+            </div>
+        </div>
+
+        <div id="messages" class="chat-messages"></div>
+
+        <form id="form" class="chat-input-area">
+            <input id="messageInput" autocomplete="off" placeholder="Напишите сообщение..." />
+            <button type="submit">➤</button>
+        </form>
+    </div>
+</div>
+
+<script path=null start=null>
+    const roomsElements = document.querySelectorAll(".room-btn");
+    const messagesDiv = document.getElementById("messages");
+    const form = document.getElementById("form");
+    const input = document.getElementById("messageInput");
+    const usernameInput = document.getElementById("username");
+    const chatTitle = document.getElementById("chatTitle");
+    const chatSubtitle = document.getElementById("chatSubtitle");
+    const onlineCountSpan = document.getElementById("onlineCount");
+
+    const roomTitles = {
+        general: "Общий чат",
+        games: "Игры",
+        random: "Разное"
+    };
+
+    let currentRoom = "general";
+    let ws = null;
+
+    function connect(room) {
+        const wsProtocol = (location.protocol === "https:") ? "wss" : "ws";
+        ws = new WebSocket(`${wsProtocol}://${location.host}/ws/${room}`);
+
+        ws.onmessage = function (event) {
+            const data = JSON.parse(event.data);
+
+            if (data.type === "status") {
+                if (data.room === currentRoom) {
+                    onlineCountSpan.textContent = data.online;
+                }
+                return;
+            }
+
+            if (data.type === "message") {
+                if (data.room !== currentRoom) return;
+
+                const isOwn = data.username === (usernameInput.value || "Аноним");
+
+                const row = document.createElement("div");
+                row.className = "message-row " + (isOwn ? "own" : "foreign");
+
+                const bubble = document.createElement("div");
+                bubble.className = "message-bubble";
+
+                const header = document.createElement("div");
+                header.className = "message-header";
+                header.textContent = data.username;
+
+                const text = document.createElement("div");
+                text.className = "message-text";
+                text.textContent = data.text;
+
+                const meta = document.createElement("div");
+                meta.className = "message-meta";
+                meta.textContent = data.time;
+
+                bubble.appendChild(header);
+                bubble.appendChild(text);
+                bubble.appendChild(meta);
+
+                row.appendChild(bubble);
+                messagesDiv.appendChild(row);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }
+        };
+
+        ws.onclose = function () {
+            // можно добавить авто‑reconnect, если захочешь
+        };
+    }
+
+    function changeRoom(room) {
+        currentRoom = room;
+        messagesDiv.innerHTML = "";
+
+        chatTitle.textContent = roomTitles[room] || "Чат";
+        chatSubtitle.textContent = `Комната: ${room}`;
+
+        roomsElements.forEach(btn => {
+            if (btn.dataset.room === room) {
+                btn.classList.add("active");
+            } else {
+                btn.classList.remove("active");
+            }
+        });
+
+        if (ws) {
+            ws.close();
+        }
+        connect(room);
+    }
+
+    roomsElements.forEach(btn => {
+        btn.addEventListener("click", () => {
+            const room = btn.dataset.room;
+            if (room !== currentRoom) {
+                changeRoom(room);
+            }
+        });
+    });
+
+    form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        const text = input.value.trim();
+        if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+        const username = usernameInput.value.trim() || "Аноним";
+        const payload = {
+            username: username,
+            text: text
+        };
+        ws.send(JSON.stringify(payload));
+        input.value = "";
+    });
+
+    // стартуем
+    connect(currentRoom);
+</script>
+</body>
+</html>
