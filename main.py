@@ -105,7 +105,7 @@ async def websocket_endpoint(websocket: WebSocket, room: str):
                 "clientId": client_id,
 }
             await manager.broadcast_message(room, message)
-            await manager.broadcast_message(room, message)
+            
     except WebSocketDisconnect:
         manager.disconnect(room, websocket)
         await manager.broadcast_status(room)
