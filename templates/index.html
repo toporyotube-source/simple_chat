@@ -2,20 +2,26 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8" />
-    <title>Мессенджер</title>
+    <title>Toporkov's live (бета тест)</title>
     <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
 <div class="app">
+    <!-- Модальное окно имени -->
+    <div class="modal-backdrop" id="nameModal">
+        <div class="modal">
+            <h2>Добро пожаловать</h2>
+            <p>Введите своё имя, чтобы мы запомнили вас на этом устройстве.</p>
+            <input id="username" type="text" placeholder="Ваше имя" />
+            <button id="saveNameBtn">Продолжить</button>
+        </div>
+    </div>
+
+    <!-- Сайдбар -->
     <div class="sidebar">
         <div class="sidebar-header">
             <div class="logo-circle">M</div>
-            <div class="sidebar-title">Мессенджер</div>
-        </div>
-
-        <div class="sidebar-user">
-            <label>Имя</label>
-            <input id="username" placeholder="Введите имя" />
+            <div class="sidebar-title">Toporkov's live (бета тест)</div>
         </div>
 
         <div class="rooms-title">Комнаты</div>
@@ -23,17 +29,35 @@
             {% for room in rooms %}
             <button class="room-btn{% if loop.first %} active{% endif %}" data-room="{{ room }}">
                 <span class="room-name">
-                    {% if room == 'general' %}Общий{% elif room == 'games' %}Игры{% elif room == 'random' %}Разное{% else %}{{ room }}{% endif %}
+                    {% if room == 'general' %}
+                        Общий
+                    {% elif room == 'games' %}
+                        Игры
+                    {% elif room == 'random' %}
+                        Разное
+                    {% else %}
+                        {{ room }}
+                    {% endif %}
                 </span>
             </button>
             {% endfor %}
         </div>
 
+        <!-- Блок выбора аватара -->
+        <div class="sidebar-avatar">
+            <div class="avatar-preview" id="avatarPreview"></div>
+            <label class="avatar-label">
+                <span>Выбрать аватар</span>
+                <input type="file" id="avatarInput" accept="image/*" />
+            </label>
+        </div>
+
         <div class="sidebar-hint">
-            Открой вкладку ещё раз — будет как второй пользователь.
+
         </div>
     </div>
 
+    <!-- Основной чат -->
     <div class="chat">
         <div class="chat-header">
             <div class="chat-header-left">
@@ -61,9 +85,23 @@
     const form = document.getElementById("form");
     const input = document.getElementById("messageInput");
     const usernameInput = document.getElementById("username");
+    const nameModal = document.getElementById("nameModal");
+    const saveNameBtn = document.getElementById("saveNameBtn");
+    const avatarInput = document.getElementById("avatarInput");
+    const avatarPreview = document.getElementById("avatarPreview");
     const chatTitle = document.getElementById("chatTitle");
     const chatSubtitle = document.getElementById("chatSubtitle");
     const onlineCountSpan = document.getElementById("onlineCount");
+
+    // Уникальный ID клиента (чтобы отличать свои сообщения от чужих)
+function getClientId() {
+    let id = localStorage.getItem("chat_client_id");
+    if (!id) {
+        id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
+        localStorage.setItem("chat_client_id", id);
+    }
+    return id;
+}  
 
     const roomTitles = {
         general: "Общий чат",
@@ -71,6 +109,61 @@
         random: "Разное"
     };
 
+    // ===== Имя (localStorage + модалка) =====
+    function getStoredName() {
+        return localStorage.getItem("chat_username") || "";
+    }
+
+    function setStoredName(name) {
+        localStorage.setItem("chat_username", name);
+    }
+
+    function initUsername() {
+        const stored = getStoredName();
+        if (stored) {
+            usernameInput.value = stored;
+            nameModal.style.display = "none";
+        } else {
+            nameModal.style.display = "flex";
+        }
+    }
+
+    saveNameBtn.addEventListener("click", () => {
+        const name = usernameInput.value.trim();
+        if (!name) return;
+        setStoredName(name);
+        nameModal.style.display = "none";
+    });
+
+    // ===== Аватар (localStorage) =====
+    function getStoredAvatar() {
+        return localStorage.getItem("chat_avatar") || "";
+    }
+
+    function setStoredAvatar(dataUrl) {
+        localStorage.setItem("chat_avatar", dataUrl);
+    }
+
+    function initAvatar() {
+        const stored = getStoredAvatar();
+        if (stored) {
+            avatarPreview.style.backgroundImage = `url(${stored})`;
+        }
+    }
+
+    avatarInput.addEventListener("change", () => {
+        const file = avatarInput.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            const dataUrl = reader.result;
+            setStoredAvatar(dataUrl);
+            avatarPreview.style.backgroundImage = `url(${dataUrl})`;
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // ===== WebSocket и чаты =====
     let currentRoom = "general";
     let ws = null;
 
@@ -89,40 +182,63 @@
             }
 
             if (data.type === "message") {
-                if (data.room !== currentRoom) return;
+    if (data.room !== currentRoom) return;
 
-                const isOwn = data.username === (usernameInput.value || "Аноним");
+    // гарантируем, что username — СТРОКА
+    let username = data && data.username;
+    if (typeof username !== "string") {
+        username = "Аноним";
+    } else {
+        username = username.trim() || "Аноним";
+    }
 
-                const row = document.createElement("div");
-                row.className = "message-row " + (isOwn ? "own" : "foreign");
+    const isOwn = data.clientId && data.clientId === getClientId();
 
-                const bubble = document.createElement("div");
-                bubble.className = "message-bubble";
+    const row = document.createElement("div");
+    row.className = "message-row " + (isOwn ? "own" : "foreign");
 
-                const header = document.createElement("div");
-                header.className = "message-header";
-                header.textContent = data.username;
+    const avatarDiv = document.createElement("div");
+    avatarDiv.className = "message-avatar";
 
-                const text = document.createElement("div");
-                text.className = "message-text";
-                text.textContent = data.text;
+    const initial = username.charAt(0).toUpperCase();
 
-                const meta = document.createElement("div");
-                meta.className = "message-meta";
-                meta.textContent = data.time;
+    if (isOwn) {
+        const storedAvatar = getStoredAvatar();
+        if (storedAvatar) {
+            avatarDiv.style.backgroundImage = `url(${storedAvatar})`;
+            avatarDiv.textContent = "";
+        } else {
+            avatarDiv.textContent = initial;
+        }
+    } else {
+        avatarDiv.textContent = initial;
+    }
 
-                bubble.appendChild(header);
-                bubble.appendChild(text);
-                bubble.appendChild(meta);
+    const bubble = document.createElement("div");
+    bubble.className = "message-bubble";
 
-                row.appendChild(bubble);
-                messagesDiv.appendChild(row);
-                messagesDiv.scrollTop = messagesDiv.scrollHeight;
-            }
-        };
+    const header = document.createElement("div");
+    header.className = "message-header";
+    header.textContent = username;
 
-        ws.onclose = function () {
-            // можно добавить авто‑reconnect, если захочешь
+    const text = document.createElement("div");
+    text.className = "message-text";
+    text.textContent = data.text || "";
+
+    const meta = document.createElement("div");
+    meta.className = "message-meta";
+    meta.textContent = data.time || "";
+
+    bubble.appendChild(header);
+    bubble.appendChild(text);
+    bubble.appendChild(meta);
+
+    row.appendChild(avatarDiv);
+    row.appendChild(bubble);
+    messagesDiv.appendChild(row);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+            
         };
     }
 
@@ -161,16 +277,18 @@
         const text = input.value.trim();
         if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
 
-        const username = usernameInput.value.trim() || "Аноним";
         const payload = {
             username: username,
-            text: text
-        };
-        ws.send(JSON.stringify(payload));
+            text: text,
+            clientId: getClientId()
+};
+ws.send(JSON.stringify(payload));
         input.value = "";
     });
 
-    // стартуем
+    // старт
+    initUsername();
+    initAvatar();
     connect(currentRoom);
 </script>
 </body>

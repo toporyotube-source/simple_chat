@@ -93,6 +93,7 @@ async def websocket_endpoint(websocket: WebSocket, room: str):
             payload = json.loads(data)
             username = payload.get("username", "Аноним")
             text = payload.get("text", "")
+            client_id = payload.get("clientId")  # идентификатор клиента
             now = datetime.now().strftime("%H:%M")
 
             message = {
@@ -101,7 +102,9 @@ async def websocket_endpoint(websocket: WebSocket, room: str):
                 "username": username,
                 "text": text,
                 "time": now,
-            }
+                "clientId": client_id,
+}
+            await manager.broadcast_message(room, message)
             await manager.broadcast_message(room, message)
     except WebSocketDisconnect:
         manager.disconnect(room, websocket)
